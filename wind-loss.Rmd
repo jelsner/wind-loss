@@ -5,6 +5,8 @@ editor_options:
   chunk_output_type: console
 ---
 
+Taken from https://rpubs.com/jelsner/816
+
 ## Preliminaries
 
 Get packages.
