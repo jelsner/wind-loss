@@ -1,0 +1,99 @@
+---
+title: "Winds & losses"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## Preliminaries
+
+Get packages.
+```{r}
+library(ggplot2)
+library(dplyr)
+library(quantreg)
+library(Renext)
+source("plfit.R")
+```
+
+## Loss data
+
+The data were sent via email from Rick Murnane on April 20, 2012 in a file called `stormData.csv`. Import data, remove missing damage and commas from losses and base amounts.
+```{r}
+stormData <- read.csv("stormData.csv", header = TRUE, na.strings = "NA")
+stormData <- stormData[!is.na(stormData$CURRENT.DAMAGE.2012), ]
+stormData$Loss <- as.numeric(gsub(",", "", stormData$CURRENT.DAMAGE.2012))
+stormData$Base <- as.numeric(gsub(",", "", stormData$BASE.DAMAGE))
+```
+
+Convert landfall wind speeds in mph to m/s and change date format.
+```{r}
+stormData <- stormData %>%
+  mutate(W = WmaxLandfall * .44704,
+         date = as.Date(format.change, format = "%b %d, %Y"))
+```
+
+Plot a time series of the data.
+```{r}
+ggplot(stormData, aes(x = date, y = Loss/1e+09)) + geom_point() + 
+  xlab("") + ylab("[billion USD (2012)]") +
+    theme_minimal()
+```
+
+## Power law versus exponential
+
+First test to see whether a power law is an adequate description of these data.
+```{r}
+plfit(stormData$Loss)
+```
+
+A value of D < .1 indicates a power law is a poor fit for these data.
+
+Next examine the evidence in support of an exponential fit. Start by generating random deviates from an exponential distribution. Set the number of deviates equal to the number of loss events.
+```{r}
+n <- length(stormData$Loss)
+set.seed(12478)
+( Renext::gofExp.test(rexp(n)) )
+```
+
+As expected, there is little evidence (large p-value) to reject the null hypothesis that the loss values can be adequately modeled with an exponential distribution.
+
+Next examine the loss values only for those exceeding $3.5 billion.
+```{r}
+threshold <- 3.5e+09
+data <- stormData$Loss[stormData$Loss > threshold]
+( Renext::gofExp.test(data) )
+```
+
+Similar to the set of all data, there is no evidence to reject the null hypothesis that the loss values can be adequately modeled with an exponential distribution.
+
+## Plot losses on an exponential scale entire US and by region
+
+Prepare the data.
+```{r}
+stormDataF <- stormData %>%
+  dplyr::filter(LANDFALL.STATE == "FL")
+
+stormDataG <- stormData %>%
+  dplyr::filter(LANDFALL.STATE %in% c("TX", "LA", "MS", "AL"))
+
+stormDataE <- stormData %>%
+  dplyr::filter(!LANDFALL.STATE %in% c("FL", "TX", "LA", "MS", "AL"))
+```
+
+Make the plot
+```{r}
+ggplot(stormData, aes(x = W, y = Loss)) +
+  geom_point() +
+  xlab("Wind speed [m/s]") + ylab("[Billion USD (2012)]") +
+  scale_y_log10(limits = c(1e+5, 1e+12), 
+                breaks = c(1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12),
+                labels = c(.001, .01, .1, 1, 10, 100, 1000)) +
+  scale_x_continuous(limits = c(10, 90)) +
+  geom_quantile(quantiles = c(.25, .5, .75, .9), aes(color = ..quantile..)) +
+  scale_color_gradient(low = "yellow", high = "red", guide = FALSE) +
+  theme_minimal() +
+  labs(title = "U.S. economic damage increases at 5% per m/s increase\nin hurricane wind speed at landfall",
+       subtitle = "Quantile regression lines at quantiles .25 (yellow), .5, .75, & .9 (red)",
+       caption = "From Murnane and Elsner (2012)")
+```
